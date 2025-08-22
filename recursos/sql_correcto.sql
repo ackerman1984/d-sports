@@ -1,0 +1,130 @@
+-- EJECUTAR PRIMERO: Tablas base
+-- Habilitar extensiones necesarias
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Tabla de ligas
+CREATE TABLE ligas (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre VARCHAR(255) NOT NULL,
+  codigo VARCHAR(20) UNIQUE NOT NULL,
+  subdominio VARCHAR(50) UNIQUE NOT NULL,
+  activa BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de usuarios con roles
+CREATE TABLE usuarios (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  nombre VARCHAR(255) NOT NULL,
+  telefono VARCHAR(20),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'anotador', 'jugador')),
+  liga_id UUID REFERENCES ligas(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de temporadas
+CREATE TABLE temporadas (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  liga_id UUID REFERENCES ligas(id) ON DELETE CASCADE,
+  nombre VARCHAR(255) NOT NULL,
+  fecha_inicio DATE NOT NULL,
+  fecha_fin DATE NOT NULL,
+  activa BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de equipos
+CREATE TABLE equipos (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  liga_id UUID REFERENCES ligas(id) ON DELETE CASCADE,
+  nombre VARCHAR(255) NOT NULL,
+  color VARCHAR(7) DEFAULT '#000000',
+  logo_url TEXT,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de jugadores
+CREATE TABLE jugadores (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  equipo_id UUID REFERENCES equipos(id) ON DELETE CASCADE,
+  usuario_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+  nombre VARCHAR(255) NOT NULL,
+  numero_casaca INTEGER NOT NULL,
+  posicion VARCHAR(50),
+  foto_url TEXT,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(equipo_id, numero_casaca)
+);
+
+-- EJECUTAR SEGUNDO: Tablas dependientes
+-- Tabla de juegos
+CREATE TABLE juegos (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  temporada_id UUID REFERENCES temporadas(id) ON DELETE CASCADE,
+  equipo_local_id UUID REFERENCES equipos(id) ON DELETE CASCADE,
+  equipo_visitante_id UUID REFERENCES equipos(id) ON DELETE CASCADE,
+  fecha TIMESTAMP WITH TIME ZONE NOT NULL,
+  estado VARCHAR(20) DEFAULT 'programado' CHECK (estado IN ('programado', 'en_progreso', 'finalizado', 'suspendido')),
+  marcador_local INTEGER DEFAULT 0,
+  marcador_visitante INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de estadísticas de jugadores por juego
+CREATE TABLE estadisticas_jugadores (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  jugador_id UUID REFERENCES jugadores(id) ON DELETE CASCADE,
+  juego_id UUID REFERENCES juegos(id) ON DELETE CASCADE,
+  turnos INTEGER DEFAULT 0,
+  hits INTEGER DEFAULT 0,
+  carreras INTEGER DEFAULT 0,
+  impulsadas INTEGER DEFAULT 0,
+  home_runs INTEGER DEFAULT 0,
+  bases_robadas INTEGER DEFAULT 0,
+  ponches INTEGER DEFAULT 0,
+  base_por_bolas INTEGER DEFAULT 0,
+  errores INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(jugador_id, juego_id)
+);
+
+-- Crear función para manejar usuarios de auth
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.usuarios (id, email, nombre, role, liga_id)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'nombre', split_part(NEW.email, '@', 1)),
+    COALESCE(NEW.raw_user_meta_data->>'role', 'jugador'),
+    (NEW.raw_user_meta_data->>'liga_id')::uuid
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger para crear usuario en nuestra tabla cuando se registra
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Habilitar Row Level Security en todas las tablas
+ALTER TABLE ligas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
+ALTER TABLE temporadas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE equipos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jugadores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE juegos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE estadisticas_jugadores ENABLE ROW LEVEL SECURITY;
+
+-- Políticas RLS básicas
+CREATE POLICY "Usuarios pueden ver su propia información" ON usuarios
+  FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Usuarios pueden ver ligas activas" ON ligas
+  FOR SELECT USING (activa = true);

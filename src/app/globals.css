@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+/* Import Intro Rust G Base2 Line font */
+@import url('https://fonts.googleapis.com/css2?family=Intro+Rust+G+Base2+Line:wght@400;700;900&display=swap');
+
+:root {
+  /* Colores brand principales */
+  --primary: #013771;
+  --secondary: #BE0D3C;
+  --accent: #619BF3;
+  --neutral: #3D5C8A;
+  --white: #FFFFFF;
+  
+  /* Colores pasteles derivados para modo claro */
+  --background: #FFFFFF;
+  --foreground: #013771;
+  --surface: #f8fafc;
+  --card: #FFFFFF;
+  --pastel-blue: #a8c8ec;
+  --pastel-red: #d68699;
+  --pastel-navy: #7a96b8;
+  --pastel-gray: #9bacc4;
+  
+  /* Estados y utilidades */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #BE0D3C;
+  --info: #619BF3;
+  
+  /* Borders y shadows */
+  --border: #e2e8f0;
+  --shadow: rgba(1, 55, 113, 0.1);
+  --shadow-lg: rgba(1, 55, 113, 0.15);
+}
+
+[data-theme="dark"] {
+  /* Modo oscuro con pasteles suaves */
+  --background: #0a0e1a;
+  --foreground: #e2e8f0;
+  --surface: #13203a;
+  --card: #1a2d4a;
+  --pastel-blue: #a8c8ec;
+  --pastel-red: #d68699;
+  --pastel-navy: #7a96b8;
+  --pastel-gray: #9bacc4;
+  
+  /* Estados para modo oscuro */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #d68699;
+  --info: #a8c8ec;
+  
+  /* Borders y shadows para modo oscuro */
+  --border: #2a4260;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --shadow-lg: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --background: #0a0e1a;
+    --foreground: #e2e8f0;
+    --surface: #13203a;
+    --card: #1a2d4a;
+    --border: #2a4260;
+    --shadow: rgba(0, 0, 0, 0.3);
+    --shadow-lg: rgba(0, 0, 0, 0.4);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
+}
+
+/* Utilidades para béisbol con brand colors */
+.baseball-gradient {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 50%, var(--pastel-blue) 100%);
+}
+
+.baseball-gradient-dark {
+  background: linear-gradient(135deg, var(--background) 0%, var(--surface) 50%, var(--card) 100%);
+}
+
+.baseball-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 6px -1px var(--shadow);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
+}
+
+.baseball-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px -5px var(--shadow-lg);
+}
+
+/* Scrollbar personalizado */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground);
+}
+
+/* Animaciones suaves */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* Responsive utilities */
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
+}

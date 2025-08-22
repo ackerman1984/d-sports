@@ -1,0 +1,555 @@
+Oye me descragaue calude code , como puedo ahcer para optmizarlo para rcear una app de baseball donde se registren estadicticas de cada partido, habra dos roles admin de liga y anotador solo estos se autentifican  , el admin establecera los juegos y la fecha inicial de la temporada y la fecha final , la app debe de asignar el calendario de juego con 3 a 4 juegos ala semana , la idea esq todos los equipos se enfreneten una vuleta , halla un descanso y se sigan enfrentando hasta q sea el final de la temporrada para pasar a eliminatorias , finale socmo lo desee cxonfigurar , los jugadore spodena registrarse con un codigo de la lga para poner su nombre su foto , su numero de casaca , su equipo previamnete resgitrado por el admin de liga y numeor celular opcional , y admin creo creddenciales de acceso para anotadores , el pone nombre de usurio y contraseña, se los porpocriona a los anotadpre sy el anotadpr se loge apara marcar las estadicticas del juego , estas estadisticso son corridas homerons faltas , etc , yo sere el lider tecnico del proyecto , busco integrar una base de datos con una appi o algo sencillo pero viable para ganrantizar el acceso ala informacion un año , y un modulo general donde puedas ver todas las ligas accedera alos equipOS O A UN CALENDARIO VER STADISTICAS POR JUGAODR Y ESTDICTICAS POR JUEGO , , DIME COMO HAGO PARA HACER ESTA APP EN MI CLAUDE CODE Y Q SERVICIO DE BASES DE DATOS ME CONVIEN ASI ATAMBIE ME GUSTARIA Q LA APP SE HAGA CON NEXTJS , T ADJUNTO UN EJEMLPO DE LAS ESTADICTICAS POR PARTIDO , PRIMERO MJESTRA LOS TOP 25 JUGADORES DE LA LIGA Y ABAJO ESTADISTICAS PRINCIPALES CON SUS JUGAODRES DETACADAOS , PERO ESO LO TINEN Q CAPTURAR ANOTADOR POR PARTIDO , HABRA UN BOTN DE XPORTAR PDF O EXCEL , Q MAS NEECETIAS SABER SERA OPTIMIZADA PARA MOBIL DEPLOYADA EN VERCEL , USA GRAPHQL DE BASES DE DATOS DEIME LA MAS OPTIMA CON PLAN GRATIS YA Q ES UN SOLO CLIENTE POR EL MOMENTO , JAVASCRIPT CON NODE .,JS , FRONT NODE JS CON ESTILOS tailwind css con un modo oscuro , y colores pasteles , mmm pues ayudame a darlo candela.
+En la version publica ahi podran acceder los admin jugadores cuando se habilite el regstro y anotadore en un apartado dscrteo menu desplegable , y en la interfaz publicxa , la sligas , al dar click en una liga veras los calendarios , en los calendarios podras dar click en los paritdo en verde y ver las estadicticas por q estos ya pcurrion y en rojo los q aun no , y una seccion de ranlink de jugadore sde la liga cuando empieze y una seccion de ranking de eeuipos
+# Paso 2: Sistema de Autenticación con Roles
+
+## 1. Primero, necesitamos crear más tablas en Supabase
+
+Ve al SQL Editor de Supabase y ejecuta esto para completar el esquema:
+
+```sql
+-- Tabla de juegos
+CREATE TABLE juegos (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  temporada_id UUID REFERENCES temporadas(id) ON DELETE CASCADE,
+  equipo_local_id UUID REFERENCES equipos(id) ON DELETE CASCADE,
+  equipo_visitante_id UUID REFERENCES equipos(id) ON DELETE CASCADE,
+  fecha TIMESTAMP WITH TIME ZONE NOT NULL,
+  estado VARCHAR(20) DEFAULT 'programado' CHECK (estado IN ('programado', 'en_progreso', 'finalizado', 'suspendido')),
+  marcador_local INTEGER DEFAULT 0,
+  marcador_visitante INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de estadísticas de jugadores por juego
+CREATE TABLE estadisticas_jugadores (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  jugador_id UUID REFERENCES jugadores(id) ON DELETE CASCADE,
+  juego_id UUID REFERENCES juegos(id) ON DELETE CASCADE,
+  turnos INTEGER DEFAULT 0,
+  hits INTEGER DEFAULT 0,
+  carreras INTEGER DEFAULT 0,
+  impulsadas INTEGER DEFAULT 0,
+  home_runs INTEGER DEFAULT 0,
+  bases_robadas INTEGER DEFAULT 0,
+  ponches INTEGER DEFAULT 0,
+  base_por_bolas INTEGER DEFAULT 0,
+  errores INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(jugador_id, juego_id)
+);
+
+-- Crear función para manejar usuarios de auth
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.usuarios (id, email, nombre, role, liga_id)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'nombre', split_part(NEW.email, '@', 1)),
+    COALESCE(NEW.raw_user_meta_data->>'role', 'jugador'),
+    (NEW.raw_user_meta_data->>'liga_id')::uuid
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger para crear usuario en nuestra tabla cuando se registra
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Habilitar RLS en nuevas tablas
+ALTER TABLE juegos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE estadisticas_jugadores ENABLE ROW LEVEL SECURITY;
+
+-- Políticas RLS básicas (las expandiremos después)
+CREATE POLICY "Usuarios pueden ver su propia información" ON usuarios
+  FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Usuarios pueden ver ligas activas" ON ligas
+  FOR SELECT USING (activa = true);
+```
+
+## 2. Configurar NextAuth con Supabase
+
+Crea `src/lib/auth/auth-options.ts`:
+
+```typescript
+import { NextAuthOptions } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
+import { createClient } from "@/lib/supabase/server";
+
+export const authOptions: NextAuthOptions = {
+  providers: [
+    CredentialsProvider({
+      name: "credentials",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
+
+        const supabase = createClient();
+        
+        // Intentar login con Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: credentials.email,
+          password: credentials.password,
+        });
+
+        if (authError || !authData.user) {
+          return null;
+        }
+
+        // Obtener información adicional del usuario
+        const { data: userData } = await supabase
+          .from('usuarios')
+          .select('*, ligas(*)')
+          .eq('id', authData.user.id)
+          .single();
+
+        if (!userData) {
+          return null;
+        }
+
+        return {
+          id: authData.user.id,
+          email: authData.user.email!,
+          name: userData.nombre,
+          role: userData.role,
+          ligaId: userData.liga_id,
+          ligaSubdominio: userData.ligas?.subdominio,
+        };
+      }
+    })
+  ],
+  callbacks: {
+    async jwt({ token, user, trigger, session }) {
+      if (user) {
+        token.id = user.id;
+        token.role = user.role;
+        token.ligaId = user.ligaId;
+        token.ligaSubdominio = user.ligaSubdominio;
+      }
+      
+      if (trigger === "update" && session) {
+        token = { ...token, ...session };
+      }
+      
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
+        session.user.ligaId = token.ligaId as string;
+        session.user.ligaSubdominio = token.ligaSubdominio as string;
+      }
+      return session;
+    },
+  },
+  pages: {
+    signIn: "/login",
+    error: "/login",
+  },
+  session: {
+    strategy: "jwt",
+  },
+  secret: process.env.NEXTAUTH_SECRET,
+};
+```
+
+## 3. Crear el cliente de Supabase para el servidor
+
+Crea `src/lib/supabase/server.ts`:
+
+```typescript
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export function createClient() {
+  const cookieStore = cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          try {
+            cookieStore.set({ name, value, ...options })
+          } catch (error) {
+            // El error es esperado cuando se llama desde un Server Component
+          }
+        },
+        remove(name: string, options: CookieOptions) {
+          try {
+            cookieStore.delete(name)
+          } catch (error) {
+            // El error es esperado cuando se llama desde un Server Component
+          }
+        },
+      },
+    }
+  )
+}
+```
+
+## 4. Actualizar tipos de NextAuth
+
+Crea `src/types/next-auth.d.ts`:
+
+```typescript
+import "next-auth";
+import { JWT } from "next-auth/jwt";
+
+declare module "next-auth" {
+  interface User {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    ligaId: string;
+    ligaSubdominio?: string;
+  }
+
+  interface Session {
+    user: {
+      id: string;
+      email: string;
+      name?: string | null;
+      role: string;
+      ligaId: string;
+      ligaSubdominio?: string;
+    };
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    id: string;
+    role: string;
+    ligaId: string;
+    ligaSubdominio?: string;
+  }
+}
+```
+
+## 5. Crear el route handler de NextAuth
+
+Crea `src/app/api/auth/[...nextauth]/route.ts`:
+
+```typescript
+import NextAuth from "next-auth";
+import { authOptions } from "@/lib/auth/auth-options";
+
+const handler = NextAuth(authOptions);
+
+export { handler as GET, handler as POST };
+```
+
+## 6. Crear el Provider de Sesión
+
+Crea `src/components/providers/session-provider.tsx`:
+
+```typescript
+"use client";
+
+import { SessionProvider } from "next-auth/react";
+
+export function AuthSessionProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return <SessionProvider>{children}</SessionProvider>;
+}
+```
+
+## 7. Actualizar el layout principal
+
+Actualiza `src/app/layout.tsx`:
+
+```typescript
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { AuthSessionProvider } from "@/components/providers/session-provider";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "Baseball SaaS",
+  description: "Sistema de gestión de ligas de béisbol",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="es" suppressHydrationWarning>
+      <body className={inter.className}>
+        <AuthSessionProvider>
+          {children}
+        </AuthSessionProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+## 8. Crear la página de Login
+
+Crea `src/app/login/page.tsx`:
+
+```typescript
+"use client";
+
+import { useState } from "react";
+import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        setError("Credenciales incorrectas");
+      } else {
+        router.push("/dashboard");
+        router.refresh();
+      }
+    } catch (error) {
+      setError("Ocurrió un error al iniciar sesión");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pastel-blue to-pastel-green dark:from-dark-bg dark:to-dark-surface">
+      <div className="bg-white dark:bg-dark-surface p-8 rounded-lg shadow-lg w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800 dark:text-white">
+            ⚾ Baseball SaaS
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
+            Inicia sesión en tu cuenta
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-dark-bg dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Contraseña
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-dark-bg dark:text-white"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? "Iniciando sesión..." : "Iniciar Sesión"}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            ¿No tienes cuenta?{" "}
+            <Link href="/registro" className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400">
+              Regístrate aquí
+            </Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+## 9. Crear Middleware para proteger rutas
+
+Crea `src/middleware.ts`:
+
+```typescript
+import { withAuth } from "next-auth/middleware";
+import { NextResponse } from "next/server";
+
+export default withAuth(
+  function middleware(req) {
+    const token = req.nextauth.token;
+    const path = req.nextUrl.pathname;
+
+    // Rutas de admin - solo admins pueden acceder
+    if (path.includes("/admin") && token?.role !== "admin") {
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+
+    // Rutas de anotador - admins y anotadores pueden acceder
+    if (path.includes("/anotador") && !["admin", "anotador"].includes(token?.role || "")) {
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+
+    return NextResponse.next();
+  },
+  {
+    callbacks: {
+      authorized: ({ token }) => !!token,
+    },
+  }
+);
+
+export const config = {
+  matcher: [
+    "/dashboard/:path*",
+    "/admin/:path*",
+    "/anotador/:path*",
+    "/equipos/:path*",
+    "/jugadores/:path*",
+    "/juegos/:path*",
+    "/estadisticas/:path*",
+  ],
+};
+```
+
+## 10. Crear un Dashboard básico para probar
+
+Crea `src/app/dashboard/page.tsx`:
+
+```typescript
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/auth-options";
+import { redirect } from "next/navigation";
+
+export default async function DashboardPage() {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    redirect("/login");
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-dark-bg">
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-4">
+          Dashboard
+        </h1>
+        
+        <div className="bg-white dark:bg-dark-surface p-6 rounded-lg shadow">
+          <h2 className="text-xl font-semibold mb-4">Bienvenido, {session.user.name}!</h2>
+          
+          <div className="space-y-2">
+            <p className="text-gray-600 dark:text-gray-400">
+              <span className="font-medium">Email:</span> {session.user.email}
+            </p>
+            <p className="text-gray-600 dark:text-gray-400">
+              <span className="font-medium">Rol:</span> {session.user.role}
+            </p>
+            <p className="text-gray-600 dark:text-gray-400">
+              <span className="font-medium">Liga ID:</span> {session.user.ligaId || "No asignada"}
+            </p>
+          </div>
+
+          <div className="mt-6">
+            <a
+              href="/api/auth/signout"
+              className="inline-block px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+            >
+              Cerrar Sesión
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+## 11. Crear un usuario de prueba en Supabase
+
+Ve al Authentication > Users en Supabase y crea un usuario de prueba, o ejecuta este SQL:
+
+```sql
+-- Primero crea una liga de prueba
+INSERT INTO ligas (nombre, codigo, subdominio) 
+VALUES ('Liga Demo', 'DEMO2025', 'demo');
+
+-- Después puedes crear usuarios desde el dashboard de Supabase Auth
+-- O usar la función de registro que crearemos en el siguiente paso
+```
+
+## ¡Listo para probar!
+
+Ahora ejecuta:
+
+```bash
+npm run dev
+```
+
+1. Ve a http://localhost:3000/login
+2. Usa las credenciales del usuario que creaste
+3. Deberías ser redirigido al dashboard
+
+## Próximos pasos
+
+Una vez que funcione el login básico, podemos:
+1. Crear la página de registro con código de liga
+2. Implementar el onboarding de jugadores
+3. Crear los dashboards específicos por rol
+4. Agregar la gestión de equipos y calendario
+
+¿Todo funcionando? ¿Algún error?

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run db:clean-fake-data:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

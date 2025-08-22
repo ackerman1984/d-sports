@@ -1,0 +1,37 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Permitir acceso a todas las rutas públicas sin restricciones por ahora
+  const publicPaths = [
+    '/',
+    '/login',
+    '/registro', 
+    '/test-simple',
+    '/super-admin',
+    '/super-admin-temp',
+    '/access-denied'
+  ];
+
+  // Si es una ruta pública o de recursos, permitir acceso
+  if (
+    publicPaths.includes(pathname) ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/favicon') ||
+    pathname.startsWith('/public')
+  ) {
+    return NextResponse.next();
+  }
+
+  // Para rutas protegidas, por ahora solo continuar
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico).*)',
+  ],
+};
