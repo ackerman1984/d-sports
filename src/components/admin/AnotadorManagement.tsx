@@ -129,7 +129,7 @@ export default function AnotadorManagement() {
       }
     } catch (error) {
       console.error('Fetch error:', error);
-      setError('Error de conexión: ' + error.message);
+      setError('Error de conexión: ' + (error as Error).message);
     } finally {
       setSaving(false);
     }

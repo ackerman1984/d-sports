@@ -38,7 +38,7 @@ export default function ProfileEditor({ profile, onProfileUpdate, onClose }: Pro
     fotoUrl: profile.fotoUrl || '',
     posicion: profile.posicion || '',
     email: profile.email || '',
-    numeroCasaca: profile.numeroCasaca || '',
+    numeroCasaca: profile.numeroCasaca ? String(profile.numeroCasaca) : '',
     fechaNacimiento: profile.fechaNacimiento || ''
   });
   

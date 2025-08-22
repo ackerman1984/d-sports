@@ -619,15 +619,41 @@ export default function ScoreGameInterface({ gameId }: { gameId: string }) {
     const defensiveTeam = currentTeam === 'local' ? 'visitante' : 'local';
     const defensivePlayers = defensiveTeam === 'local' ? playersLocal : playersVisitante;
     
-    // Buscar el pitcher (posición 1)
-    return defensivePlayers.find(p => p.numero === 1) || defensivePlayers[0];
+    // Buscar el jugador que tiene asignada la posición 'P' (Pitcher) en el lineup
+    for (let lineupPosition = 0; lineupPosition < 9; lineupPosition++) {
+      const selectedPosition = selectedPositions[lineupPosition];
+      const playerInPosition = selectedPlayers[lineupPosition] || defensivePlayers[lineupPosition];
+      
+      // Verificar si esta posición tiene asignada 'P' (Pitcher)
+      if (selectedPosition === 'P' && playerInPosition) {
+        console.log(`⚾ Pitcher encontrado en lineup: ${playerInPosition.nombre} en posición ${lineupPosition + 1}`);
+        return playerInPosition;
+      }
+      
+      // También verificar si la posición original del jugador es pitcher
+      if (!selectedPosition && playerInPosition?.posicion === 'P') {
+        console.log(`⚾ Pitcher encontrado por posición original: ${playerInPosition.nombre}`);
+        return playerInPosition;
+      }
+    }
+    
+    // Fallback: buscar por posición original si no se encuentra en el lineup
+    const pitcherByPosition = defensivePlayers.find(p => p.posicion === 'P');
+    if (pitcherByPosition) {
+      console.log(`⚾ Pitcher encontrado por posición original (fallback): ${pitcherByPosition.nombre}`);
+      return pitcherByPosition;
+    }
+    
+    console.log(`⚠️ No se encontró pitcher en equipo defensivo: ${defensiveTeam}`);
+    return null;
   };
 
   const handlePitcherAction = async (action: string) => {
     try {
       const pitcher = getCurrentPitcher();
       if (!pitcher) {
-        setError('No se encontró pitcher en el equipo defensivo');
+        const defensiveTeam = currentTeam === 'local' ? 'visitante' : 'local';
+        setError(`No se encontró pitcher con posición 'P' en el equipo ${defensiveTeam} (equipo en defensa). Asigna la posición 'P' a un jugador en el lineup.`);
         return;
       }
 
@@ -709,14 +735,22 @@ export default function ScoreGameInterface({ gameId }: { gameId: string }) {
     
     if (gameState.strikes >= 3) {
       processingAutoAction.current = true;
-      handleQuickAction('K').finally(() => {
+      // Registrar ponche para bateador y pitcher
+      Promise.all([
+        handleQuickAction('K'),
+        handlePitcherAction('K_P')
+      ]).finally(() => {
         setTimeout(() => {
           processingAutoAction.current = false;
         }, 100);
       });
     } else if (gameState.balls >= 4) {
       processingAutoAction.current = true;
-      handleQuickAction('BB').finally(() => {
+      // Registrar base por bolas para bateador y pitcher
+      Promise.all([
+        handleQuickAction('BB'),
+        handlePitcherAction('BB_P')
+      ]).finally(() => {
         setTimeout(() => {
           processingAutoAction.current = false;
         }, 100);
@@ -1255,9 +1289,12 @@ export default function ScoreGameInterface({ gameId }: { gameId: string }) {
                             setGameState(prev => ({ ...prev, strikes: 0, outs: prev.outs + 1 }));
                             if (currentPlayer) {
                               handleQuickAction('K'); // Registrar ponche
+                              handlePitcherAction('K_P'); // Registrar ponche para pitcher
                             }
                           } else {
                             setGameState(prev => ({ ...prev, strikes: newStrikes }));
+                            // Registrar strike como lanzamiento para pitcher
+                            handlePitcherAction('STRIKE_PITCH');
                           }
                         }}
                       />
@@ -1288,9 +1325,12 @@ export default function ScoreGameInterface({ gameId }: { gameId: string }) {
                         setRunners(prev => ({ ...prev, first: true }));
                         if (currentPlayer) {
                           handleQuickAction('BB'); // Registrar base por bolas
+                          handlePitcherAction('BB_P'); // Registrar base por bolas para pitcher
                         }
                       } else {
                         setGameState(prev => ({ ...prev, balls: newBalls }));
+                        // Registrar bola como lanzamiento para pitcher
+                        handlePitcherAction('BALL_PITCH');
                       }
                     }}
                   />
@@ -1405,7 +1445,7 @@ export default function ScoreGameInterface({ gameId }: { gameId: string }) {
           <div className="bg-blue-900 rounded-lg p-4 mb-6">
             <h4 className="text-lg font-bold text-center text-blue-300 mb-3">⚾ ESTADÍSTICAS DEL PITCHER</h4>
             <p className="text-xs text-slate-400 text-center mb-3">
-              Pitcher: {getCurrentPitcher()?.nombre || 'No seleccionado'}
+              Pitcher ({currentTeam === 'local' ? 'Visitante' : 'Local'}): {getCurrentPitcher()?.nombre || 'Asignar posición P en lineup'}
             </p>
             
             {/* Contadores manuales */}

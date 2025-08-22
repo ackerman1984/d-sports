@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
 
     // Usar service role para operaciones de vinculación
     const supabase = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
     console.log('🔍 Buscando jugador con email:', email);

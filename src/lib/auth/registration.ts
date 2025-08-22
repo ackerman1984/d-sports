@@ -64,7 +64,7 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       const { error: updateError } = await supabase
         .from('jugadores')
         .update({ 
-          id: authData.user.id,
+          id: authData.user!.id,
           updated_at: new Date().toISOString()
         })
         .eq('email', userData.email);
@@ -78,7 +78,7 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       const { error: updateUsuarioError } = await supabase
         .from('usuarios')
         .update({ 
-          id: authData.user.id,
+          id: authData.user!.id,
           updated_at: new Date().toISOString()
         })
         .eq('email', userData.email);
@@ -91,7 +91,7 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       // Actualizar estadísticas si existen
       await supabase
         .from('estadisticas_jugador')
-        .update({ jugador_id: authData.user.id })
+        .update({ jugador_id: authData.user!.id })
         .eq('jugador_id', jugadorPreCreado.id);
       
       console.log('🔗 Vinculación completada exitosamente');
@@ -121,7 +121,7 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       const { data: existingProfile } = await supabase
         .from('usuarios')
         .select()
-        .eq('id', authData.user.id)
+        .eq('id', authData.user!.id)
         .single();
         
       userProfile = existingProfile;
@@ -130,7 +130,7 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       const { data: newProfile, error: profileError } = await supabase
         .from('usuarios')
         .upsert({
-          id: authData.user.id,
+          id: authData.user!.id,
           email: userData.email,
           nombre: userData.nombre,
           role: userData.role,
@@ -142,7 +142,7 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
 
       if (profileError) {
         // Si falla la creación del perfil, eliminar el usuario de auth
-        await supabase.auth.admin.deleteUser(authData.user.id);
+        await supabase.auth.admin.deleteUser(authData.user!.id);
         return { user: null, error: profileError.message };
       }
       
@@ -154,7 +154,7 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       const { error: jugadorError } = await supabase
         .from('jugadores')
         .insert({
-          id: authData.user.id,
+          id: authData.user!.id,
           equipo_id: userData.equipoId,
           nombre: userData.nombre,
           email: userData.email,
@@ -174,15 +174,15 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       if (jugadorError) {
         console.error('Error creating jugador entry:', jugadorError);
         // Si falla la creación del jugador, eliminar el usuario
-        await supabase.auth.admin.deleteUser(authData.user.id);
-        await supabase.from('usuarios').delete().eq('id', authData.user.id);
+        await supabase.auth.admin.deleteUser(authData.user!.id);
+        await supabase.from('usuarios').delete().eq('id', authData.user!.id);
         return { user: null, error: 'Error creating player profile' };
       }
     } else if (userData.role === 'admin') {
       const { error: adminError } = await supabase
         .from('administradores')
         .insert({
-          id: authData.user.id,
+          id: authData.user!.id,
           nombre: userData.nombre,
           email: userData.email,
           liga_id: userData.ligaId,
@@ -193,8 +193,8 @@ export async function registerUser(userData: RegisterUserData): Promise<{ user: 
       if (adminError) {
         console.error('Error creating admin entry:', adminError);
         // Si falla la creación del admin, eliminar el usuario
-        await supabase.auth.admin.deleteUser(authData.user.id);
-        await supabase.from('usuarios').delete().eq('id', authData.user.id);
+        await supabase.auth.admin.deleteUser(authData.user!.id);
+        await supabase.from('usuarios').delete().eq('id', authData.user!.id);
         return { user: null, error: 'Error creating admin profile' };
       }
     }
