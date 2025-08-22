@@ -69,9 +69,9 @@ export async function POST(request: NextRequest) {
         nombre: anotador.nombre,
         email: anotador.email,
         liga: {
-          id: Array.isArray(anotador.ligas) ? anotador.ligas[0]?.id : anotador.ligas?.id,
-          nombre: Array.isArray(anotador.ligas) ? anotador.ligas[0]?.nombre : anotador.ligas?.nombre,
-          codigo: Array.isArray(anotador.ligas) ? anotador.ligas[0]?.codigo : anotador.ligas?.codigo
+          id: Array.isArray(anotador.ligas) ? anotador.ligas[0]?.id : (anotador.ligas as any)?.id,
+          nombre: Array.isArray(anotador.ligas) ? anotador.ligas[0]?.nombre : (anotador.ligas as any)?.nombre,
+          codigo: Array.isArray(anotador.ligas) ? anotador.ligas[0]?.codigo : (anotador.ligas as any)?.codigo
         }
       }
     });
