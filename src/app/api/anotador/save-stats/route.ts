@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No hay sesión activa' }, { status: 401 });
     }
 
-    const { gameId, jugadorId, entrada, accion, carrera, rbis, marcadorLocal, marcadorVisitante, pitches, isPitcherStat } = await request.json();
+    const { gameId, jugadorId, entrada, accion, carrera, rbis, marcadorLocal, marcadorVisitante } = await request.json();
 
     if (!gameId || !jugadorId || !entrada || !accion) {
       return NextResponse.json({ 
@@ -51,8 +51,8 @@ export async function POST(request: NextRequest) {
     console.log('🔍 Estadística existente:', estadisticaExistente ? 'Sí' : 'No');
     if (buscarError) console.log('⚠️ Error buscando estadística:', buscarError.message);
 
-    // Calcular nuevas estadísticas basadas en la acción
-    const nuevasStats = calcularEstadisticas(accion, estadisticaExistente, rbis || 0, pitches || 0, isPitcherStat);
+    // Calcular nuevas estadísticas de bateo solamente
+    const nuevasStats = calcularEstadisticasBateo(accion, estadisticaExistente, rbis || 0);
 
     let resultado;
     if (estadisticaExistente) {
@@ -140,36 +140,38 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function calcularEstadisticas(accion: string, estadisticaExistente: any, rbisNuevos: number = 0, pitchesNuevos: number = 0, isPitcherStat: boolean = false) {
+function calcularEstadisticasBateo(accion: string, estadisticaExistente: any, rbisNuevos: number = 0) {
   const base = estadisticaExistente || {
-    turnos: 0,
+    turnos: 0,           // Solo turnos al bat (AB - At Bats)
     hits: 0,
     carreras: 0,
-    impulsadas: 0,
+    impulsadas: 0,       // RBIs
     home_runs: 0,
     bases_robadas: 0,
-    ponches: 0,
-    base_por_bolas: 0,
+    ponches: 0,          // Ponches como bateador
+    base_por_bolas: 0,   // Bases por bolas como bateador
+    ibb: 0,              // Bases por bolas intencionales
     errores: 0,
     h1: 0,
     h2: 0,
     h3: 0,
-    // Estadísticas de pitcher
-    lanzamientos: 0,
-    ponches_pitcher: 0,
-    bases_por_bolas_pitcher: 0,
-    golpes_bateador: 0,
-    balk: 0
+    promedio_bateo: 0.000,  // Promedio de bateo
+    juegos_jugados: 0       // Juegos jugados (siempre 1 por registro)
   };
 
   const nuevaStats = { ...base };
 
-  // Incrementar turnos para la mayoría de acciones (excepto BB y HBP)
-  if (!['BB', 'HBP', 'SF', 'SH'].includes(accion)) {
+  // IMPORTANTE: Incrementar turnos SOLO para acciones de bateo válidas
+  // Un turno al bat se cuenta cuando el bateador tiene la oportunidad de batear
+  // NO se cuenta para BB, HBP, SF (sacrifice fly), SH (sacrifice hit/bunt), CI (catcher interference), IBB
+  if (!['BB', 'HBP', 'SF', 'SH', 'CI', 'IBB'].includes(accion)) {
     nuevaStats.turnos++;
+    console.log(`📊 BATEO: Incrementando turno para ${accion}. Total: ${nuevaStats.turnos}`);
+  } else {
+    console.log(`📊 BATEO: NO incrementando turno para ${accion} (no cuenta como AB)`);
   }
 
-  // Calcular estadísticas específicas por acción
+  // Calcular estadísticas específicas por acción de BATEO
   switch (accion) {
     case '1B':
     case 'H1':
@@ -189,14 +191,16 @@ function calcularEstadisticas(accion: string, estadisticaExistente: any, rbisNue
     case 'HR':
       nuevaStats.hits++;
       nuevaStats.home_runs++;
-      nuevaStats.carreras++; // El bateador siempre anota una carrera
-      // Las RBIs (impulsadas) se calculan por separado basándose en corredores en base
+      nuevaStats.carreras++; // El bateador siempre anota una carrera en HR
       break;
     case 'K':
-      nuevaStats.ponches++;
+      nuevaStats.ponches++; // Ponche como bateador
       break;
     case 'BB':
-      nuevaStats.base_por_bolas++;
+      nuevaStats.base_por_bolas++; // Base por bolas como bateador
+      break;
+    case 'IBB':
+      nuevaStats.ibb++; // Base por bolas intencional
       break;
     case 'C':
       nuevaStats.carreras++;
@@ -210,41 +214,57 @@ function calcularEstadisticas(accion: string, estadisticaExistente: any, rbisNue
     case 'E':
       nuevaStats.errores++;
       break;
+    // Interferencias
+    case 'BI':
+      // Batter Interference - Se cuenta como AB pero es OUT
+      break;
+    case 'CI':
+      // Catcher Interference - NO cuenta como AB, bateador va a primera
+      break;
+    case 'RI':
+      // Runner Interference - No afecta estadísticas del bateador
+      break;
+    case 'Fan INT':
+    case 'Coach INT':
+      // No afectan estadísticas del bateador
+      break;
+    // Outs por fildeo (no afectan estadísticas de bateo principales)
+    case 'O':
+    case '4-3':
+    case '5-3': 
+    case '6-3':
+    case 'F7':
+    case 'F8':
+    case 'F6':
+    case 'Fly':
+      // Estos ya incrementaron turnos arriba, no necesitan estadística adicional
+      break;
   }
 
-  // Agregar RBIs calculados desde el frontend
+  // Agregar RBIs calculados desde el frontend (corredores impulsados)
   if (rbisNuevos > 0) {
     nuevaStats.impulsadas += rbisNuevos;
+    console.log(`📊 BATEO: Agregando ${rbisNuevos} RBIs. Total: ${nuevaStats.impulsadas}`);
   }
 
-  // Agregar estadísticas de pitcher
-  if (pitchesNuevos > 0) {
-    nuevaStats.lanzamientos += pitchesNuevos;
+  // Calcular promedio de bateo actualizado
+  if (nuevaStats.turnos > 0) {
+    nuevaStats.promedio_bateo = parseFloat((nuevaStats.hits / nuevaStats.turnos).toFixed(3));
+  } else {
+    nuevaStats.promedio_bateo = 0.000;
   }
 
-  // Estadísticas específicas de pitcher
-  if (isPitcherStat) {
-    switch (accion) {
-      case 'K_P':
-        nuevaStats.ponches_pitcher++;
-        break;
-      case 'BB_P':
-        nuevaStats.bases_por_bolas_pitcher++;
-        break;
-      case 'HBP':
-        nuevaStats.golpes_bateador++;
-        nuevaStats.lanzamientos++; // HBP cuenta como lanzamiento
-        break;
-      case 'BK':
-        nuevaStats.balk++;
-        break;
-      case 'PITCH':
-      case 'STRIKE_PITCH':
-      case 'BALL_PITCH':
-        // Solo incrementar lanzamientos (ya se hace arriba con pitchesNuevos)
-        break;
-    }
-  }
+  // Establecer juegos jugados (cada registro = 1 juego)
+  nuevaStats.juegos_jugados = 1;
+
+  console.log(`📊 BATEO Final para ${accion}:`, {
+    turnos: nuevaStats.turnos,
+    hits: nuevaStats.hits,
+    carreras: nuevaStats.carreras,
+    impulsadas: nuevaStats.impulsadas,
+    promedio_bateo: nuevaStats.promedio_bateo,
+    juegos_jugados: nuevaStats.juegos_jugados
+  });
 
   return nuevaStats;
 }
